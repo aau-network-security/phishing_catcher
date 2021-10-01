@@ -146,20 +146,33 @@ def callback(message, context):
 
 def scores_from_cert(cert):
     scores = []
-    for san in sans_from_cert(cert):
+    for san in domains_from_cert(cert):
         score = score_domain(san)
         scores.append(score)
     return scores
 
-def sans_from_cert(cert):
+
+def domains_from_cert(cert):
     domains = []
 
     # SANs
-    sans_ext = cert.extensions.get_extension_for_oid(cryptography.x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
-    for candidate_san in sans_ext.value:
-        if type(candidate_san) == cryptography.x509.general_name.DNSName:
-            san = candidate_san.value
-            domains.append(san)
+    try:
+        sans_ext = cert.extensions.get_extension_for_oid(cryptography.x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        for candidate_san in sans_ext.value:
+            if type(candidate_san) == cryptography.x509.general_name.DNSName:
+                san = candidate_san.value
+                domains.append(san)
+    except:
+        pass
+
+    # Subject
+    try:
+        cn_parts = cert.subject.get_attributes_for_oid(cryptography.x509.oid.NameOID.COMMON_NAME)
+        cn = cn_parts[0].value
+    except:
+        if cn not in domains:
+            domains.append(cn)
+
     return domains
 
 
@@ -195,7 +208,7 @@ if __name__ == '__main__':
             file = open(fpath, 'rb')
             cert_bytes = file.read()
             cert = x509.load_der_x509_certificate(cert_bytes, default_backend())
-            sans = sans_from_cert(cert)
+            sans = domains_from_cert(cert)
 
             scores = scores_from_cert(cert)
 
