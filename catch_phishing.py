@@ -226,7 +226,7 @@ if __name__ == '__main__':
             #     verdict = 'potential'
 
             cert_id = fname[:-4]
-            print(f"Max score for '{cert_id}' = {max_score}")
+            # print(f"Max score for '{cert_id}' = {max_score}")
             score_map[cert_id] = max_score
 
     with open(output_file, 'w') as f:
