@@ -169,9 +169,11 @@ def domains_from_cert(cert):
     try:
         cn_parts = cert.subject.get_attributes_for_oid(cryptography.x509.oid.NameOID.COMMON_NAME)
         cn = cn_parts[0].value
-    except:
-        if cn not in domains:
+
+        if cn and cn not in domains:
             domains.append(cn)
+    except:
+        pass
 
     return domains
 
