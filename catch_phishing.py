@@ -209,10 +209,13 @@ if __name__ == '__main__':
             fpath = os.path.join(input_dir, fname)
             file = open(fpath, 'rb')
             cert_bytes = file.read()
-            cert = x509.load_der_x509_certificate(cert_bytes, default_backend())
-            sans = domains_from_cert(cert)
+            try:
+                cert = x509.load_der_x509_certificate(cert_bytes, default_backend())
+                sans = domains_from_cert(cert)
 
-            scores = scores_from_cert(cert)
+                scores = scores_from_cert(cert)
+            except:
+                scores = []
 
             if len(scores) > 0:
                 max_score = max(scores)
