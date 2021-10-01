@@ -1,2 +1,4 @@
+.idea
+*.csv
 *.pyc
 suspicious_domains.log

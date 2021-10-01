@@ -9,35 +9,40 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
+import csv
 import re
 import math
 
-import certstream
-import tqdm
+import cryptography
+from tqdm import tqdm
 import yaml
 import time
 import os
+import sys
 from Levenshtein import distance
+from cryptography.hazmat.backends import default_backend
 from termcolor import colored, cprint
 from tld import get_tld
+from os import listdir
+from cryptography import x509
 
 from confusables import unconfuse
 
 certstream_url = 'wss://certstream.calidog.io'
 
-log_suspicious = os.path.dirname(os.path.realpath(__file__))+'/suspicious_domains_'+time.strftime("%Y-%m-%d")+'.log'
+log_suspicious = os.path.dirname(os.path.realpath(__file__)) + '/suspicious_domains_' + time.strftime(
+    "%Y-%m-%d") + '.log'
 
-suspicious_yaml = os.path.dirname(os.path.realpath(__file__))+'/suspicious.yaml'
+suspicious_yaml = os.path.dirname(os.path.realpath(__file__)) + '/suspicious.yaml'
 
-external_yaml = os.path.dirname(os.path.realpath(__file__))+'/external.yaml'
-
-pbar = tqdm.tqdm(desc='certificate_update', unit='cert')
+external_yaml = os.path.dirname(os.path.realpath(__file__)) + '/external.yaml'
 
 def entropy(string):
     """Calculates the Shannon entropy of a string"""
-    prob = [ float(string.count(c)) / len(string) for c in dict.fromkeys(list(string)) ]
-    entropy = - sum([ p * math.log(p) / math.log(2.0) for p in prob ])
+    prob = [float(string.count(c)) / len(string) for c in dict.fromkeys(list(string))]
+    entropy = - sum([p * math.log(p) / math.log(2.0) for p in prob])
     return entropy
+
 
 def score_domain(domain):
     """Score `domain`.
@@ -67,7 +72,7 @@ def score_domain(domain):
         pass
 
     # Higer entropy is kind of suspicious
-    score += int(round(entropy(domain)*10))
+    score += int(round(entropy(domain) * 10))
 
     # Remove lookalike characters using list from http://www.unicode.org/reports/tr39
     domain = unconfuse(domain)
@@ -84,7 +89,7 @@ def score_domain(domain):
             score += suspicious['keywords'][word]
 
     # Testing Levenshtein distance for strong keywords (>= 70 points) (ie. paypol)
-    for key in [k for (k,s) in suspicious['keywords'].items() if s >= 70]:
+    for key in [k for (k, s) in suspicious['keywords'].items() if s >= 70]:
         # Removing too generic keywords (ie. mail.domain.com)
         for word in [w for w in words_in_domain if w not in ['email', 'mail', 'cloud']]:
             if distance(str(word), str(key)) == 1:
@@ -139,12 +144,31 @@ def callback(message, context):
                     f.write("{}\n".format(domain))
 
 
-if __name__ == '__main__':
-    with open(suspicious_yaml, 'r') as f:
-        suspicious = yaml.safe_load(f)
+def scores_from_cert(cert):
+    scores = []
+    for san in sans_from_cert(cert):
+        score = score_domain(san)
+        scores.append(score)
+    return scores
 
-    with open(external_yaml, 'r') as f:
-        external = yaml.safe_load(f)
+def sans_from_cert(cert):
+    domains = []
+
+    # SANs
+    sans_ext = cert.extensions.get_extension_for_oid(cryptography.x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+    for candidate_san in sans_ext.value:
+        if type(candidate_san) == cryptography.x509.general_name.DNSName:
+            san = candidate_san.value
+            domains.append(san)
+    return domains
+
+
+if __name__ == '__main__':
+    with open(suspicious_yaml, 'r') as fname:
+        suspicious = yaml.safe_load(fname)
+
+    with open(external_yaml, 'r') as fname:
+        external = yaml.safe_load(fname)
 
     if external['override_suspicious.yaml'] is True:
         suspicious = external
@@ -155,4 +179,40 @@ if __name__ == '__main__':
         if external['tlds'] is not None:
             suspicious['tlds'].update(external['tlds'])
 
-    certstream.listen_for_events(callback, url=certstream_url)
+    # read from disk here
+    if len(sys.argv) != 3:
+        print(f"Usage: python catch_phishing.py <input directory> <output file>")
+        exit(-1)
+
+    input_dir = sys.argv[1]
+    output_file = sys.argv[2]
+
+    score_map = {}
+    for fname in tqdm(listdir(input_dir)):
+        if fname.endswith(".crt"):
+
+            fpath = os.path.join(input_dir, fname)
+            file = open(fpath, 'rb')
+            cert_bytes = file.read()
+            cert = x509.load_der_x509_certificate(cert_bytes, default_backend())
+            sans = sans_from_cert(cert)
+
+            scores = scores_from_cert(cert)
+
+            max_score = max(scores)
+            verdict = 'benign'
+            if max(scores) >= 90:
+                verdict = 'suspicious'
+            elif max(scores) >= 80:
+                verdict = 'likely'
+            elif max(scores) >= 65:
+                verdict = 'potential'
+
+            cert_id = fname[:-4]
+            print(f"Max score for '{cert_id}' = {max_score}")
+            score_map[cert_id] = max_score
+
+    with open(output_file, 'w') as f:
+        writer = csv.writer(f)
+        for k, v in tqdm(score_map.items()):
+            writer.writerow([k, v])
