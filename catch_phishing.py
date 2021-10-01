@@ -212,14 +212,18 @@ if __name__ == '__main__':
 
             scores = scores_from_cert(cert)
 
-            max_score = max(scores)
-            verdict = 'benign'
-            if max(scores) >= 90:
-                verdict = 'suspicious'
-            elif max(scores) >= 80:
-                verdict = 'likely'
-            elif max(scores) >= 65:
-                verdict = 'potential'
+            if len(scores) > 0:
+                max_score = max(scores)
+            else:
+                max_score = -1
+
+            # verdict = 'benign'
+            # if max(scores) >= 90:
+            #     verdict = 'suspicious'
+            # elif max(scores) >= 80:
+            #     verdict = 'likely'
+            # elif max(scores) >= 65:
+            #     verdict = 'potential'
 
             cert_id = fname[:-4]
             print(f"Max score for '{cert_id}' = {max_score}")
